@@ -1,0 +1,58 @@
+name: Build Windows Installer
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup --no-progress
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: 'stable'
+          cache: true
+
+      - name: Verify Flutter & System
+        run: |
+          flutter doctor -v
+
+      - name: Install dependencies
+        run: |
+          flutter pub get
+
+      - name: Build Windows desktop release
+        run: |
+          flutter build windows --release
+
+      - name: Compile Inno Setup installer
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" windows\packaging\inno_setup.iss
+
+      - name: Upload Windows Installer (.exe)
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhysioTally-Windows-Installer
+          path: build/installer/*.exe
+          retention-days: 14
+
+      - name: Upload Portable Zip (.zip)
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhysioTally-Windows-Portable
+          path: build/windows/x64/runner/Release/
+          retention-days: 14
+
