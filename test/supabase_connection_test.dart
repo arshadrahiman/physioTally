@@ -5,9 +5,9 @@ void main() {
   group('Supabase Configuration Tests', () {
     test('Supabase project URL and publishable key are configured', () {
       expect(SubscriptionConstants.supabaseUrl,
-          'https://xafsmxdfhkcyvgqupgya.supabase.co');
+          'https://tnddkaktekgtfrzdshsy.supabase.co');
       expect(SubscriptionConstants.supabaseAnonKey,
-          'sb_publishable_JlL5fvCwYNf4JM-fOtDZGA_qQ_8dZ7C');
+          'sb_publishable_-OcICJesIrQKt4GLDeeaYg_eUslhT1-');
       expect(SubscriptionConstants.isSupabaseConfigured, true);
     });
 

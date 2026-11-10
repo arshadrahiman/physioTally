@@ -18,8 +18,8 @@ class SubscriptionConstants {
   // 2. Create a table named `subscriptions` with columns:
   //    id (uuid), email (text), phone (text), plan_name (text), is_active (bool),
   //    expires_at (timestamptz), promo_code (text), is_redeemed (bool).
-  static const String supabaseUrl = 'https://xafsmxdfhkcyvgqupgya.supabase.co';
-  static const String supabaseAnonKey = 'sb_publishable_JlL5fvCwYNf4JM-fOtDZGA_qQ_8dZ7C';
+  static const String supabaseUrl = 'https://tnddkaktekgtfrzdshsy.supabase.co';
+  static const String supabaseAnonKey = 'sb_publishable_-OcICJesIrQKt4GLDeeaYg_eUslhT1-';
   static const String subscriptionsTable = 'subscriptions';
   static const String activationKeysTable = 'activation_keys';
   static const String profilesTable = 'profiles';
