@@ -199,9 +199,14 @@ class SupabaseSubscriptionService {
       );
     } on AuthException catch (e) {
       debugPrint('Auth error: ${e.message}');
+      final msg = (e.message.contains('SocketException') ||
+              e.message.contains('Failed host lookup') ||
+              e.message.contains('ClientException'))
+          ? 'Unable to connect to the server. Please check your internet connection or verify your Supabase project status.'
+          : e.message;
       return AuthResult(
         isSuccess: false,
-        message: e.message,
+        message: msg,
       );
     } catch (e) {
       debugPrint('Signup error: $e');
@@ -312,9 +317,14 @@ class SupabaseSubscriptionService {
       );
     } on AuthException catch (e) {
       debugPrint('Sign in auth exception: ${e.message}');
+      final msg = (e.message.contains('SocketException') ||
+              e.message.contains('Failed host lookup') ||
+              e.message.contains('ClientException'))
+          ? 'Unable to connect to the server. Please check your internet connection or verify your Supabase project status.'
+          : e.message;
       return AuthResult(
         isSuccess: false,
-        message: e.message,
+        message: msg,
       );
     } catch (e) {
       debugPrint('Sign in error: $e');
