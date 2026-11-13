@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -22,6 +23,32 @@ class PdfInvoiceService {
     }
   }
 
+  static pw.Widget _buildMetaRow(String label, String value, pw.Font font) {
+    return pw.RichText(
+      text: pw.TextSpan(
+        children: [
+          pw.TextSpan(
+            text: '$label: ',
+            style: pw.TextStyle(
+              font: font,
+              fontWeight: pw.FontWeight.bold,
+              fontSize: 10.5,
+              color: PdfColors.black,
+            ),
+          ),
+          pw.TextSpan(
+            text: value,
+            style: pw.TextStyle(
+              font: font,
+              fontSize: 10.5,
+              color: PdfColors.black,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   static Future<File> generatePhysioInvoicePdf({
     required Therapist therapist,
     required String invoiceId,
@@ -35,10 +62,12 @@ class PdfInvoiceService {
     required String paymentMode,
     required String paymentStatus,
     required bool isPro,
+    String? receiptDate,
   }) async {
     final font = await loadFont();
     final pdf = pw.Document();
 
+    // 1. Resolve Logo: custom uploaded file > base64 from cloud profile > app default icon
     pw.MemoryImage? logoImage;
     if (therapist.logoPath != null && therapist.logoPath!.isNotEmpty) {
       final logoFile = File(therapist.logoPath!);
@@ -48,7 +77,21 @@ class PdfInvoiceService {
         } catch (_) {}
       }
     }
+    if (logoImage == null &&
+        therapist.logoBase64 != null &&
+        therapist.logoBase64!.isNotEmpty) {
+      try {
+        logoImage = pw.MemoryImage(base64Decode(therapist.logoBase64!));
+      } catch (_) {}
+    }
+    if (logoImage == null) {
+      try {
+        final byteData = await rootBundle.load('assets/icons/icon.png');
+        logoImage = pw.MemoryImage(byteData.buffer.asUint8List());
+      } catch (_) {}
+    }
 
+    // 2. Resolve Signature
     pw.MemoryImage? signatureImage;
     if (therapist.signaturePath != null &&
         therapist.signaturePath!.isNotEmpty) {
@@ -59,62 +102,51 @@ class PdfInvoiceService {
         } catch (_) {}
       }
     }
+    if (signatureImage == null &&
+        therapist.signatureBase64 != null &&
+        therapist.signatureBase64!.isNotEmpty) {
+      try {
+        signatureImage =
+            pw.MemoryImage(base64Decode(therapist.signatureBase64!));
+      } catch (_) {}
+    }
 
-    final formattedDate =
-        '${DateTime.now().day.toString().padLeft(2, '0')}/${DateTime.now().month.toString().padLeft(2, '0')}/${DateTime.now().year}';
+    final now = DateTime.now();
+    final formattedDate = receiptDate ??
+        '${now.day.toString().padLeft(2, '0')}-${now.month.toString().padLeft(2, '0')}-${now.year}';
+
+    // Doctor name formatted
+    final docName = therapist.name.trim().isNotEmpty
+        ? (therapist.name.trim().startsWith('Dr')
+            ? therapist.name.trim()
+            : 'Dr. ${therapist.name.trim()}')
+        : 'Dr. Practitioner (PT)';
+
+    // Teal Theme Color matching template
+    final tealColor = PdfColor.fromHex('#008080');
 
     pdf.addPage(
       pw.Page(
         pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(36),
+        margin: const pw.EdgeInsets.symmetric(horizontal: 40, vertical: 36),
         build: (pw.Context context) {
           return pw.Stack(
             children: [
-              // Professional Free Trial Watermark (Only shown for free trial users)
+              // Free trial subtle watermark
               if (!isPro)
                 pw.Positioned.fill(
                   child: pw.Center(
                     child: pw.Transform.rotate(
-                      angle: -0.55,
+                      angle: -0.5,
                       child: pw.Opacity(
-                        opacity: 0.065,
-                        child: pw.Container(
-                          padding: const pw.EdgeInsets.symmetric(
-                            horizontal: 28,
-                            vertical: 14,
-                          ),
-                          decoration: pw.BoxDecoration(
-                            border: pw.Border.all(
-                              color: PdfColors.blueGrey800,
-                              width: 2.5,
-                            ),
-                            borderRadius: pw.BorderRadius.circular(8),
-                          ),
-                          child: pw.Column(
-                            mainAxisSize: pw.MainAxisSize.min,
-                            children: [
-                              pw.Text(
-                                'PHYSIOTALLY',
-                                style: pw.TextStyle(
-                                  fontSize: 40,
-                                  fontWeight: pw.FontWeight.bold,
-                                  font: font,
-                                  letterSpacing: 4.0,
-                                  color: PdfColors.blueGrey900,
-                                ),
-                              ),
-                              pw.SizedBox(height: 4),
-                              pw.Text(
-                                'FREE TRIAL VERSION',
-                                style: pw.TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: pw.FontWeight.bold,
-                                  font: font,
-                                  letterSpacing: 2.5,
-                                  color: PdfColors.blueGrey900,
-                                ),
-                              ),
-                            ],
+                        opacity: 0.05,
+                        child: pw.Text(
+                          'PHYSIOTALLY FREE TRIAL',
+                          style: pw.TextStyle(
+                            fontSize: 42,
+                            fontWeight: pw.FontWeight.bold,
+                            font: font,
+                            color: PdfColors.blueGrey800,
                           ),
                         ),
                       ),
@@ -122,553 +154,381 @@ class PdfInvoiceService {
                   ),
                 ),
 
-              // Main Receipt Content
+              // Main Receipt Document Content
               pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  // Top Header: Clinic / Practitioner info
+                  // Header Row: Logo on Left, Doctor info on Right
                   pw.Row(
                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                     mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                     children: [
-                      // Logo or Medical Crest
-                      pw.Column(
-                        crossAxisAlignment: pw.CrossAxisAlignment.start,
-                        children: [
-                          if (logoImage != null)
-                            pw.Container(
-                              height: 64,
-                              width: 130,
-                              margin: const pw.EdgeInsets.only(bottom: 8),
-                              child: pw.Image(
-                                logoImage,
-                                fit: pw.BoxFit.contain,
-                              ),
-                            )
-                          else
-                            pw.Container(
-                              padding: const pw.EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 6,
-                              ),
-                              decoration: pw.BoxDecoration(
-                                color: PdfColors.teal,
-                                borderRadius: pw.BorderRadius.circular(6),
-                              ),
-                              child: pw.Text(
-                                'PHYSIOTHERAPY CLINIC & HOME CARE',
-                                style: pw.TextStyle(
-                                  color: PdfColors.white,
-                                  fontSize: 10,
-                                  fontWeight: pw.FontWeight.bold,
-                                  font: font,
-                                ),
-                              ),
-                            ),
-                          pw.SizedBox(height: 6),
-                          pw.Text(
-                            therapist.clinicName.isNotEmpty
-                                ? therapist.clinicName
-                                : 'Physiotherapy & Rehabilitation Care',
-                            style: pw.TextStyle(
-                              fontSize: 15,
-                              fontWeight: pw.FontWeight.bold,
-                              color: PdfColors.teal900,
-                              font: font,
+                      // Editable Practice / Doctor Logo (Left)
+                      if (logoImage != null)
+                        pw.Container(
+                          height: 58,
+                          width: 58,
+                          child: pw.ClipOval(
+                            child: pw.Image(
+                              logoImage,
+                              fit: pw.BoxFit.contain,
                             ),
                           ),
-                          pw.Text(
-                            therapist.practiceType,
-                            style: pw.TextStyle(
-                              fontSize: 10,
-                              color: PdfColors.grey700,
-                              font: font,
-                            ),
-                          ),
-                        ],
-                      ),
+                        )
+                      else
+                        pw.SizedBox(height: 58, width: 58),
 
-                      // Practitioner details
+                      // Doctor / Practitioner Details (Right)
                       pw.Column(
                         crossAxisAlignment: pw.CrossAxisAlignment.end,
                         children: [
                           pw.Text(
-                            therapist.name,
+                            docName,
                             style: pw.TextStyle(
-                              fontSize: 16,
+                              fontSize: 13,
                               fontWeight: pw.FontWeight.bold,
                               font: font,
-                              color: PdfColors.teal800,
+                              color: PdfColors.black,
                             ),
                           ),
-                          pw.Text(
-                            therapist.qualification,
-                            style: pw.TextStyle(
-                              fontSize: 11,
-                              fontWeight: pw.FontWeight.bold,
-                              font: font,
-                              color: PdfColors.grey800,
-                            ),
-                          ),
-                          if (therapist.registrationNumber.isNotEmpty)
+                          if (therapist.qualification.trim().isNotEmpty) ...[
+                            pw.SizedBox(height: 2),
                             pw.Text(
-                              'Reg No: ${therapist.registrationNumber}',
-                              style: pw.TextStyle(fontSize: 10, font: font),
-                            ),
-                          pw.Text(
-                            'Phone: ${therapist.phone}',
-                            style: pw.TextStyle(fontSize: 10, font: font),
-                          ),
-                          if (therapist.email.isNotEmpty)
-                            pw.Text(
-                              'Email: ${therapist.email}',
-                              style: pw.TextStyle(fontSize: 10, font: font),
-                            ),
-                          if (therapist.address != null &&
-                              therapist.address!.isNotEmpty)
-                            pw.Container(
-                              width: 180,
-                              child: pw.Text(
-                                therapist.address!,
-                                textAlign: pw.TextAlign.right,
-                                style: pw.TextStyle(
-                                  fontSize: 9,
-                                  color: PdfColors.grey700,
-                                  font: font,
-                                ),
+                              therapist.qualification.trim(),
+                              style: pw.TextStyle(
+                                fontSize: 10,
+                                font: font,
+                                color: PdfColors.black,
                               ),
                             ),
+                          ],
+                          if (therapist.registrationNumber.trim().isNotEmpty) ...[
+                            pw.SizedBox(height: 2),
+                            pw.Text(
+                              therapist.registrationNumber
+                                      .trim()
+                                      .toLowerCase()
+                                      .startsWith('reg')
+                                  ? therapist.registrationNumber.trim()
+                                  : 'Reg No: ${therapist.registrationNumber.trim()}',
+                              style: pw.TextStyle(
+                                fontSize: 10,
+                                font: font,
+                                color: PdfColors.black,
+                              ),
+                            ),
+                          ],
+                          if (therapist.phone.trim().isNotEmpty) ...[
+                            pw.SizedBox(height: 2),
+                            pw.Text(
+                              therapist.phone.trim().toLowerCase().startsWith('phone')
+                                  ? therapist.phone.trim()
+                                  : 'Phone: ${therapist.phone.trim()}',
+                              style: pw.TextStyle(
+                                fontSize: 10,
+                                font: font,
+                                color: PdfColors.black,
+                              ),
+                            ),
+                          ],
+                          if (therapist.email.trim().isNotEmpty) ...[
+                            pw.SizedBox(height: 2),
+                            pw.Text(
+                              therapist.email.trim().toLowerCase().startsWith('email')
+                                  ? therapist.email.trim()
+                                  : 'Email: ${therapist.email.trim()}',
+                              style: pw.TextStyle(
+                                fontSize: 10,
+                                font: font,
+                                color: PdfColors.black,
+                              ),
+                            ),
+                          ],
+                          if (therapist.workHours.trim().isNotEmpty) ...[
+                            pw.SizedBox(height: 2),
+                            pw.Text(
+                              therapist.workHours
+                                      .trim()
+                                      .toLowerCase()
+                                      .startsWith('work')
+                                  ? therapist.workHours.trim()
+                                  : 'Work Hours: ${therapist.workHours.trim()}',
+                              style: pw.TextStyle(
+                                fontSize: 10,
+                                font: font,
+                                color: PdfColors.black,
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ],
                   ),
 
-                  pw.SizedBox(height: 12),
-                  pw.Divider(color: PdfColors.teal, thickness: 1.5),
                   pw.SizedBox(height: 8),
 
-                  // Title Bar & Meta
-                  pw.Row(
-                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                    children: [
-                      pw.Text(
-                        'PHYSIOTHERAPY TREATMENT RECEIPT',
-                        style: pw.TextStyle(
-                          fontSize: 14,
-                          fontWeight: pw.FontWeight.bold,
-                          color: PdfColors.teal800,
-                          font: font,
-                        ),
-                      ),
-                      pw.Text(
-                        'Date: $formattedDate   |   Receipt #: ${invoiceId.substring(invoiceId.length > 8 ? invoiceId.length - 8 : 0)}',
-                        style: pw.TextStyle(
-                          fontSize: 9,
-                          color: PdfColors.grey700,
-                          font: font,
-                        ),
-                      ),
-                    ],
+                  // Teal horizontal divider line across the page
+                  pw.Divider(
+                    color: tealColor,
+                    thickness: 1.5,
                   ),
+
                   pw.SizedBox(height: 12),
 
-                  // Patient Card
-                  pw.Container(
-                    padding: const pw.EdgeInsets.all(12),
-                    decoration: pw.BoxDecoration(
-                      color: PdfColors.grey100,
-                      borderRadius: pw.BorderRadius.circular(8),
-                      border: pw.Border.all(color: PdfColors.grey300),
-                    ),
-                    child: pw.Row(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
-                      children: [
-                        pw.Expanded(
-                          child: pw.Column(
-                            crossAxisAlignment: pw.CrossAxisAlignment.start,
-                            children: [
-                              pw.RichText(
-                                text: pw.TextSpan(
-                                  children: [
-                                    pw.TextSpan(
-                                      text: 'Patient Name: ',
-                                      style: pw.TextStyle(
-                                        fontWeight: pw.FontWeight.bold,
-                                        font: font,
-                                        fontSize: 11,
-                                      ),
-                                    ),
-                                    pw.TextSpan(
-                                      text: patientName,
-                                      style: pw.TextStyle(
-                                        font: font,
-                                        fontSize: 11,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              pw.SizedBox(height: 4),
-                              pw.RichText(
-                                text: pw.TextSpan(
-                                  children: [
-                                    pw.TextSpan(
-                                      text: 'Contact / Mobile: ',
-                                      style: pw.TextStyle(
-                                        fontWeight: pw.FontWeight.bold,
-                                        font: font,
-                                        fontSize: 10,
-                                      ),
-                                    ),
-                                    pw.TextSpan(
-                                      text: patientPhone.isNotEmpty
-                                          ? patientPhone
-                                          : 'N/A',
-                                      style: pw.TextStyle(
-                                        font: font,
-                                        fontSize: 10,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        pw.Expanded(
-                          child: pw.Column(
-                            crossAxisAlignment: pw.CrossAxisAlignment.start,
-                            children: [
-                              pw.RichText(
-                                text: pw.TextSpan(
-                                  children: [
-                                    pw.TextSpan(
-                                      text: 'Clinical Diagnosis: ',
-                                      style: pw.TextStyle(
-                                        fontWeight: pw.FontWeight.bold,
-                                        font: font,
-                                        fontSize: 10,
-                                      ),
-                                    ),
-                                    pw.TextSpan(
-                                      text: diagnosis,
-                                      style: pw.TextStyle(
-                                        font: font,
-                                        fontSize: 10,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              if (treatmentPlan.isNotEmpty) ...[
-                                pw.SizedBox(height: 4),
-                                pw.RichText(
-                                  text: pw.TextSpan(
-                                    children: [
-                                      pw.TextSpan(
-                                        text: 'Treatment Plan: ',
-                                        style: pw.TextStyle(
-                                          fontWeight: pw.FontWeight.bold,
-                                          font: font,
-                                          fontSize: 10,
-                                        ),
-                                      ),
-                                      pw.TextSpan(
-                                        text: treatmentPlan,
-                                        style: pw.TextStyle(
-                                          font: font,
-                                          fontSize: 10,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ],
+                  // Receipt Title (Centered)
+                  pw.Center(
+                    child: pw.Text(
+                      'PHYSIOTHERAPY RECEIPT',
+                      style: pw.TextStyle(
+                        fontSize: 16,
+                        fontWeight: pw.FontWeight.bold,
+                        letterSpacing: 1.2,
+                        color: tealColor,
+                        font: font,
+                      ),
                     ),
                   ),
 
                   pw.SizedBox(height: 16),
 
-                  // Treatment Itemized Table
-                  pw.TableHelper.fromTextArray(
-                    headers: [
-                      '#',
-                      'Therapy / Modality / Procedure',
-                      'Period / Sessions',
-                      'Amount (₹)',
-                    ],
-                    data: List.generate(treatmentItems.length, (i) {
-                      final item = treatmentItems[i];
-                      return [
-                        '${i + 1}',
-                        item['treatment'] ?? '',
-                        item['date'] ?? '',
-                        '₹${item['amount'] ?? '0'}',
-                      ];
-                    }),
-                    headerStyle: pw.TextStyle(
-                      fontWeight: pw.FontWeight.bold,
-                      color: PdfColors.white,
-                      font: font,
-                      fontSize: 10,
-                    ),
-                    headerDecoration: const pw.BoxDecoration(
-                      color: PdfColors.teal,
-                    ),
-                    cellStyle: pw.TextStyle(font: font, fontSize: 9.5),
-                    cellAlignment: pw.Alignment.centerLeft,
-                    cellAlignments: {
-                      0: pw.Alignment.center,
-                      3: pw.Alignment.centerRight,
-                    },
-                    columnWidths: {
-                      0: const pw.FixedColumnWidth(28),
-                      1: const pw.FlexColumnWidth(5),
-                      2: const pw.FlexColumnWidth(3),
-                      3: const pw.FlexColumnWidth(2.2),
-                    },
-                  ),
-
-                  pw.SizedBox(height: 14),
-
-                  // Total & Payment Summary Row
-                  pw.Row(
-                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  // Patient / Client Information Section
+                  pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
-                      // Payment Mode & UPI
-                      pw.Column(
-                        crossAxisAlignment: pw.CrossAxisAlignment.start,
-                        children: [
-                          pw.Row(
-                            children: [
-                              pw.Text(
-                                'Payment Status: ',
-                                style: pw.TextStyle(
-                                  fontWeight: pw.FontWeight.bold,
-                                  fontSize: 10,
-                                  font: font,
-                                ),
-                              ),
-                              pw.Container(
-                                padding: const pw.EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 3,
-                                ),
-                                decoration: pw.BoxDecoration(
-                                  color: paymentStatus == 'Paid'
-                                      ? PdfColors.green100
-                                      : PdfColors.amber100,
-                                  borderRadius: pw.BorderRadius.circular(4),
-                                  border: pw.Border.all(
-                                    color: paymentStatus == 'Paid'
-                                        ? PdfColors.green700
-                                        : PdfColors.amber800,
-                                  ),
-                                ),
-                                child: pw.Text(
-                                  paymentStatus.toUpperCase(),
-                                  style: pw.TextStyle(
-                                    fontSize: 9,
-                                    fontWeight: pw.FontWeight.bold,
-                                    font: font,
-                                    color: paymentStatus == 'Paid'
-                                        ? PdfColors.green800
-                                        : PdfColors.amber900,
-                                  ),
-                                ),
-                              ),
-                              pw.SizedBox(width: 8),
-                              pw.Text(
-                                'via $paymentMode',
-                                style: pw.TextStyle(fontSize: 10, font: font),
-                              ),
-                            ],
-                          ),
-                          if (therapist.upiId != null &&
-                              therapist.upiId!.isNotEmpty) ...[
-                            pw.SizedBox(height: 4),
-                            pw.Text(
-                              'UPI ID: ${therapist.upiId}',
-                              style: pw.TextStyle(
-                                fontSize: 9,
-                                color: PdfColors.teal900,
-                                fontWeight: pw.FontWeight.bold,
-                                font: font,
-                              ),
-                            ),
-                          ],
-                        ],
+                      _buildMetaRow('Date', formattedDate, font),
+                      pw.SizedBox(height: 3),
+                      _buildMetaRow(
+                        'Client Name',
+                        patientName.trim().toUpperCase(),
+                        font,
                       ),
-
-                      // Grand Total
-                      pw.Container(
-                        padding: const pw.EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
-                        decoration: pw.BoxDecoration(
-                          color: PdfColors.teal50,
-                          borderRadius: pw.BorderRadius.circular(6),
-                          border: pw.Border.all(color: PdfColors.teal),
-                        ),
-                        child: pw.Row(
-                          children: [
-                            pw.Text(
-                              'TOTAL AMOUNT: ',
-                              style: pw.TextStyle(
-                                fontSize: 11,
-                                fontWeight: pw.FontWeight.bold,
-                                color: PdfColors.teal900,
-                                font: font,
-                              ),
-                            ),
-                            pw.Text(
-                              '₹${totalAmount.toStringAsFixed(2)}',
-                              style: pw.TextStyle(
-                                fontSize: 15,
-                                fontWeight: pw.FontWeight.bold,
-                                color: PdfColors.teal900,
-                                font: font,
-                              ),
-                            ),
-                          ],
-                        ),
+                      pw.SizedBox(height: 3),
+                      _buildMetaRow(
+                        'Mobile',
+                        patientPhone.trim().isNotEmpty
+                            ? patientPhone.trim()
+                            : 'N/A',
+                        font,
                       ),
+                      pw.SizedBox(height: 3),
+                      _buildMetaRow(
+                        'Diagnosis',
+                        diagnosis.trim().toUpperCase(),
+                        font,
+                      ),
+                      if (treatmentPlan.trim().isNotEmpty) ...[
+                        pw.SizedBox(height: 3),
+                        _buildMetaRow(
+                          'Treatment Plan',
+                          treatmentPlan.trim(),
+                          font,
+                        ),
+                      ],
                     ],
                   ),
 
-                  // Clinical Notes
-                  if (notes.trim().isNotEmpty) ...[
-                    pw.SizedBox(height: 16),
-                    pw.Container(
-                      width: double.infinity,
-                      padding: const pw.EdgeInsets.all(10),
-                      decoration: pw.BoxDecoration(
-                        color: PdfColors.grey50,
-                        borderRadius: pw.BorderRadius.circular(6),
-                        border: pw.Border.all(color: PdfColors.grey300),
-                      ),
-                      child: pw.Column(
-                        crossAxisAlignment: pw.CrossAxisAlignment.start,
-                        children: [
-                          pw.Text(
-                            'Therapist Clinical Notes / Advice:',
-                            style: pw.TextStyle(
-                              fontWeight: pw.FontWeight.bold,
-                              fontSize: 9.5,
-                              font: font,
-                            ),
-                          ),
-                          pw.SizedBox(height: 4),
-                          pw.Text(
-                            notes.trim(),
-                            style: pw.TextStyle(
-                              fontSize: 9,
-                              color: PdfColors.grey800,
-                              font: font,
-                            ),
-                          ),
-                        ],
-                      ),
+                  pw.SizedBox(height: 16),
+
+                  // Treatments Table (Treatment | Period | Amount (₹))
+                  pw.Table(
+                    border: pw.TableBorder.all(
+                      color: PdfColors.black,
+                      width: 0.8,
                     ),
-                  ],
-
-                  pw.Spacer(),
-
-                  // Bottom Signature & Disclaimer
-                  pw.Row(
-                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                    crossAxisAlignment: pw.CrossAxisAlignment.end,
+                    columnWidths: {
+                      0: const pw.FlexColumnWidth(5.0),
+                      1: const pw.FlexColumnWidth(2.6),
+                      2: const pw.FlexColumnWidth(2.4),
+                    },
                     children: [
-                      pw.Column(
-                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      // Header Row
+                      pw.TableRow(
+                        decoration: pw.BoxDecoration(
+                          color: tealColor,
+                        ),
                         children: [
-                          pw.Text(
-                            'Thank you for trusting us with your recovery and wellness.',
-                            style: pw.TextStyle(
-                              fontSize: 8.5,
-                              fontStyle: pw.FontStyle.italic,
-                              color: PdfColors.grey600,
-                              font: font,
+                          pw.Container(
+                            padding: const pw.EdgeInsets.symmetric(
+                              vertical: 6,
+                              horizontal: 8,
+                            ),
+                            alignment: pw.Alignment.center,
+                            child: pw.Text(
+                              'Treatment',
+                              style: pw.TextStyle(
+                                font: font,
+                                fontWeight: pw.FontWeight.bold,
+                                fontSize: 10.5,
+                                color: PdfColors.white,
+                              ),
                             ),
                           ),
-                          pw.Text(
-                            'This receipt is valid for tax / medical reimbursement purposes.',
-                            style: pw.TextStyle(
-                              fontSize: 8,
-                              color: PdfColors.grey500,
-                              font: font,
+                          pw.Container(
+                            padding: const pw.EdgeInsets.symmetric(
+                              vertical: 6,
+                              horizontal: 8,
+                            ),
+                            alignment: pw.Alignment.center,
+                            child: pw.Text(
+                              'Period',
+                              style: pw.TextStyle(
+                                font: font,
+                                fontWeight: pw.FontWeight.bold,
+                                fontSize: 10.5,
+                                color: PdfColors.white,
+                              ),
+                            ),
+                          ),
+                          pw.Container(
+                            padding: const pw.EdgeInsets.symmetric(
+                              vertical: 6,
+                              horizontal: 8,
+                            ),
+                            alignment: pw.Alignment.center,
+                            child: pw.Text(
+                              'Amount (₹)',
+                              style: pw.TextStyle(
+                                font: font,
+                                fontWeight: pw.FontWeight.bold,
+                                fontSize: 10.5,
+                                color: PdfColors.white,
+                              ),
                             ),
                           ),
                         ],
                       ),
-                      pw.Column(
-                        crossAxisAlignment: pw.CrossAxisAlignment.center,
-                        children: [
-                          if (signatureImage != null)
+                      // Data Rows
+                      ...treatmentItems.map((item) {
+                        final treatmentText = item['treatment'] ?? '';
+                        final periodText = item['date'] ?? '';
+                        final amountVal = item['amount'] ?? '0';
+
+                        return pw.TableRow(
+                          children: [
                             pw.Container(
-                              height: 38,
-                              width: 100,
-                              child: pw.Image(
-                                signatureImage,
-                                fit: pw.BoxFit.contain,
+                              padding: const pw.EdgeInsets.symmetric(
+                                vertical: 8,
+                                horizontal: 8,
                               ),
-                            )
-                          else
-                            pw.Container(
-                              width: 140,
-                              decoration: const pw.BoxDecoration(
-                                border: pw.Border(
-                                  bottom: pw.BorderSide(
-                                    color: PdfColors.grey400,
-                                    width: 1,
-                                  ),
+                              alignment: pw.Alignment.topLeft,
+                              child: pw.Text(
+                                treatmentText,
+                                style: pw.TextStyle(
+                                  font: font,
+                                  fontSize: 10,
+                                  color: PdfColors.black,
                                 ),
                               ),
-                              child: pw.SizedBox(height: 28),
                             ),
-                          pw.SizedBox(height: 4),
-                          pw.Text(
-                            therapist.name,
-                            style: pw.TextStyle(
-                              fontSize: 10,
-                              fontWeight: pw.FontWeight.bold,
-                              font: font,
+                            pw.Container(
+                              padding: const pw.EdgeInsets.symmetric(
+                                vertical: 8,
+                                horizontal: 8,
+                              ),
+                              alignment: pw.Alignment.center,
+                              child: pw.Text(
+                                periodText,
+                                textAlign: pw.TextAlign.center,
+                                style: pw.TextStyle(
+                                  font: font,
+                                  fontSize: 10,
+                                  color: PdfColors.black,
+                                ),
+                              ),
                             ),
-                          ),
-                          pw.Text(
-                            'Authorized Physiotherapist',
-                            style: pw.TextStyle(
-                              fontSize: 8,
-                              color: PdfColors.grey600,
-                              font: font,
+                            pw.Container(
+                              padding: const pw.EdgeInsets.symmetric(
+                                vertical: 8,
+                                horizontal: 8,
+                              ),
+                              alignment: pw.Alignment.centerLeft,
+                              child: pw.Text(
+                                amountVal,
+                                style: pw.TextStyle(
+                                  font: font,
+                                  fontSize: 10,
+                                  color: PdfColors.black,
+                                ),
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        );
+                      }),
                     ],
                   ),
 
-                  // Free tier footer note (Only shown for free trial users)
-                  if (!isPro) ...[
-                    pw.SizedBox(height: 10),
-                    pw.Center(
-                      child: pw.Text(
-                        'Generated using PhysioTally Free Trial • Upgrade to Physio Pro to remove trial watermark',
-                        style: pw.TextStyle(
-                          fontSize: 8,
-                          fontStyle: pw.FontStyle.italic,
-                          color: PdfColors.grey600,
-                          font: font,
-                        ),
+                  pw.SizedBox(height: 10),
+
+                  // Total (Right Aligned)
+                  pw.Align(
+                    alignment: pw.Alignment.centerRight,
+                    child: pw.Text(
+                      'Total: ₹${totalAmount.toStringAsFixed(2)}',
+                      style: pw.TextStyle(
+                        font: font,
+                        fontWeight: pw.FontWeight.bold,
+                        fontSize: 13.5,
+                        color: PdfColors.black,
+                      ),
+                    ),
+                  ),
+
+                  // Optional Notes
+                  if (notes.trim().isNotEmpty) ...[
+                    pw.SizedBox(height: 14),
+                    pw.Text(
+                      'Notes: ${notes.trim()}',
+                      style: pw.TextStyle(
+                        font: font,
+                        fontSize: 9,
+                        color: PdfColors.grey700,
                       ),
                     ),
                   ],
+
+                  pw.SizedBox(height: 36),
+
+                  // Signature Section (Left Aligned)
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        'Signature of Physiotherapist:',
+                        style: pw.TextStyle(
+                          font: font,
+                          fontSize: 10.5,
+                          color: PdfColors.black,
+                        ),
+                      ),
+                      pw.SizedBox(height: 8),
+                      if (signatureImage != null)
+                        pw.Container(
+                          height: 38,
+                          width: 140,
+                          margin: const pw.EdgeInsets.only(bottom: 4),
+                          child: pw.Image(
+                            signatureImage,
+                            fit: pw.BoxFit.contain,
+                          ),
+                        )
+                      else
+                        pw.SizedBox(height: 28),
+                      pw.Container(
+                        width: 180,
+                        height: 0.8,
+                        color: PdfColors.black,
+                      ),
+                      pw.SizedBox(height: 6),
+                      pw.Text(
+                        docName,
+                        style: pw.TextStyle(
+                          font: font,
+                          fontSize: 10.5,
+                          color: PdfColors.black,
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ],

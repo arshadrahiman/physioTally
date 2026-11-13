@@ -23,6 +23,7 @@ class _PhysioBillFormState extends ConsumerState<PhysioBillForm> {
   final _formKey = GlobalKey<FormState>();
 
   // Patient Info Controllers
+  final _receiptDateController = TextEditingController();
   final _patientNameController = TextEditingController();
   final _patientMobileController = TextEditingController();
   final _diagnosisController = TextEditingController();
@@ -43,12 +44,14 @@ class _PhysioBillFormState extends ConsumerState<PhysioBillForm> {
   void initState() {
     super.initState();
     final today = _formatDate(DateTime.now());
+    _receiptDateController.text = today;
     _fromDateController.text = today;
     _toDateController.text = today;
   }
 
   @override
   void dispose() {
+    _receiptDateController.dispose();
     _patientNameController.dispose();
     _patientMobileController.dispose();
     _diagnosisController.dispose();
@@ -168,6 +171,7 @@ class _PhysioBillFormState extends ConsumerState<PhysioBillForm> {
         paymentMode: _paymentMode,
         paymentStatus: _paymentStatus,
         isPro: subState.isPro,
+        receiptDate: _receiptDateController.text.trim(),
       );
 
       // Save to local invoice history
@@ -281,17 +285,32 @@ class _PhysioBillFormState extends ConsumerState<PhysioBillForm> {
                               const Icon(Icons.person_outline, color: AppTheme.primaryTeal),
                               const SizedBox(width: 8),
                               const Text(
-                                'Patient Information',
+                                'Client / Patient Information',
                                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                               ),
                             ],
                           ),
                           const SizedBox(height: 16),
+                          InkWell(
+                            onTap: () => _pickDate(_receiptDateController),
+                            child: IgnorePointer(
+                              child: TextFormField(
+                                controller: _receiptDateController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Receipt Date *',
+                                  hintText: 'DD-MM-YYYY',
+                                  suffixIcon: Icon(Icons.calendar_month, size: 20),
+                                  prefixIcon: Icon(Icons.event_note_outlined),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
                           TextFormField(
                             controller: _patientNameController,
                             decoration: const InputDecoration(
-                              labelText: 'Patient Full Name *',
-                              hintText: 'e.g. John Doe',
+                              labelText: 'Client / Patient Full Name *',
+                              hintText: 'e.g. MOHANAN PONNETH',
                               prefixIcon: Icon(Icons.badge_outlined),
                             ),
                             validator: (v) =>

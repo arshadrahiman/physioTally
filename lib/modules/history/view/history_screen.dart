@@ -54,6 +54,9 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
             workHours: '',
           );
 
+      final dateStr =
+          '${item.createdAt.day.toString().padLeft(2, '0')}-${item.createdAt.month.toString().padLeft(2, '0')}-${item.createdAt.year}';
+
       final generated = await PdfInvoiceService.generatePhysioInvoicePdf(
         therapist: fallbackTherapist,
         invoiceId: item.id,
@@ -67,6 +70,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
         paymentMode: item.paymentMode,
         paymentStatus: item.paymentStatus,
         isPro: subState.isPro,
+        receiptDate: dateStr,
       );
 
       final updated = item.copyWith(pdfFilePath: generated.path);
